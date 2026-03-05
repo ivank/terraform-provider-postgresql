@@ -6,6 +6,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/blang/semver"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 
@@ -110,7 +111,7 @@ func resourcePostgreSQLDefaultPrivilegesRead(db *DBConnection, d *schema.Resourc
 	}
 	defer deferredRollback(txn)
 
-	return readRoleDefaultPrivileges(txn, d)
+	return readRoleDefaultPrivileges(txn, db.version, d)
 }
 
 func resourcePostgreSQLDefaultPrivilegesCreate(db *DBConnection, d *schema.ResourceData) error {
@@ -185,7 +186,7 @@ func resourcePostgreSQLDefaultPrivilegesCreate(db *DBConnection, d *schema.Resou
 	}
 	defer deferredRollback(txn)
 
-	return readRoleDefaultPrivileges(txn, d)
+	return readRoleDefaultPrivileges(txn, db.version, d)
 }
 
 func resourcePostgreSQLDefaultPrivilegesDelete(db *DBConnection, d *schema.ResourceData) error {
@@ -224,7 +225,7 @@ func resourcePostgreSQLDefaultPrivilegesDelete(db *DBConnection, d *schema.Resou
 	return nil
 }
 
-func readRoleDefaultPrivileges(txn *sql.Tx, d *schema.ResourceData) error {
+func readRoleDefaultPrivileges(txn *sql.Tx, ver semver.Version, d *schema.ResourceData) error {
 	role := d.Get("role").(string)
 	owner := d.Get("owner").(string)
 	pgSchema := d.Get("schema").(string)
@@ -283,7 +284,7 @@ func readRoleDefaultPrivileges(txn *sql.Tx, d *schema.ResourceData) error {
 	}
 
 	privilegesSet := pgArrayToSet(privileges)
-	privilegesEqual := resourcePrivilegesEqual(privilegesSet, d)
+	privilegesEqual := resourcePrivilegesEqual(privilegesSet, d, ver)
 
 	if !privilegesEqual {
 		d.Set("privileges", privilegesSet)
