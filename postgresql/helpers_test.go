@@ -108,12 +108,14 @@ func TestArePrivilegesEqual(t *testing.T) {
 			true,
 		},
 		{
-			"table ALL missing MAINTAIN on pg16 - should drift",
+			// GRANT ALL on tables does not include MAINTAIN even on PG16+,
+			// so a 7-privilege set matches ALL on pg16 without drift.
+			"table ALL without MAINTAIN on pg16 - no drift",
 			buildResourceData("table", t),
 			buildPrivilegesSet("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"),
 			buildPrivilegesSet("ALL"),
 			pg16,
-			false,
+			true,
 		},
 		{
 			"table partial != multi",

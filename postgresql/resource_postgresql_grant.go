@@ -656,22 +656,25 @@ func createRevokeQuery(getter ResourceSchemeGetter) string {
 		}
 	case "TABLE", "SEQUENCE", "FUNCTION", "PROCEDURE", "ROUTINE":
 		objects := getter("objects").(*schema.Set)
-		privileges := getter("privileges").(*schema.Set)
+		objectType := strings.ToUpper(getter("object_type").(string))
 		if objects.Len() > 0 {
-			if privileges.Len() > 0 {
-				// Revoking specific privileges instead of all privileges
-				// to avoid messing with column level grants
+			// For TABLE, always revoke ALL PRIVILEGES to avoid issues with newer
+			// privilege types (e.g. MAINTAIN on PG16+) not being recognized in
+			// specific REVOKE statements. For other types, revoke specific
+			// privileges when specified to preserve column-level grants.
+			privileges := getter("privileges").(*schema.Set)
+			if privileges.Len() > 0 && objectType != "TABLE" {
 				query = fmt.Sprintf(
 					"REVOKE %s ON %s %s FROM %s",
 					setToPgIdentSimpleList(privileges),
-					strings.ToUpper(getter("object_type").(string)),
+					objectType,
 					setToPgIdentList(getter("schema").(string), objects),
 					pq.QuoteIdentifier(getter("role").(string)),
 				)
 			} else {
 				query = fmt.Sprintf(
 					"REVOKE ALL PRIVILEGES ON %s %s FROM %s",
-					strings.ToUpper(getter("object_type").(string)),
+					objectType,
 					setToPgIdentList(getter("schema").(string), objects),
 					pq.QuoteIdentifier(getter("role").(string)),
 				)
@@ -679,7 +682,7 @@ func createRevokeQuery(getter ResourceSchemeGetter) string {
 		} else {
 			query = fmt.Sprintf(
 				"REVOKE ALL PRIVILEGES ON ALL %sS IN SCHEMA %s FROM %s",
-				strings.ToUpper(getter("object_type").(string)),
+				objectType,
 				pq.QuoteIdentifier(getter("schema").(string)),
 				pq.QuoteIdentifier(getter("role").(string)),
 			)

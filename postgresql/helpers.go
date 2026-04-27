@@ -283,17 +283,15 @@ func validatePrivileges(d *schema.ResourceData) error {
 }
 
 // allPrivilegesForObjectType returns the individual privileges that ALL
-// expands to for the given object type and server version.
+// expands to for the given object type. Note: MAINTAIN is intentionally
+// excluded because GRANT ALL on tables does not include MAINTAIN even on
+// PG16+; MAINTAIN must be granted explicitly.
 func allPrivilegesForObjectType(objectType string, ver semver.Version) []string {
 	base := allowedPrivileges[objectType]
-	maintainRange := featureSupported[featurePrivilegeMaintain]
 
 	var privs []string
 	for _, p := range base {
-		if p == "ALL" {
-			continue
-		}
-		if p == "MAINTAIN" && !maintainRange(ver) {
+		if p == "ALL" || p == "MAINTAIN" {
 			continue
 		}
 		privs = append(privs, p)
