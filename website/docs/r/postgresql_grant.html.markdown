@@ -12,7 +12,7 @@ The ``postgresql_grant`` resource creates and manages privileges given to a user
 
 See [PostgreSQL documentation](https://www.postgresql.org/docs/current/sql-grant.html)
 
-~> **Note:** This resource needs Postgresql version 9 or above.
+~> **Note:** This resource supports PostgreSQL versions 9 through 18.
 ~> **Note:** Using column & table grants on the _same_ table with the _same_ privileges can lead to unexpected behaviours.
 
 ## Usage
@@ -46,7 +46,7 @@ resource "postgresql_grant" "read_insert_column" {
 * `database` - (Required) The database to grant privileges on for this role.
 * `schema` - The database schema to grant privileges on for this role (Required except if object_type is "database")
 * `object_type` - (Required) The PostgreSQL object type to grant the privileges on (one of: database, schema, table, sequence, function, procedure, routine, foreign_data_wrapper, foreign_server, column).
-* `privileges` - (Required) The list of privileges to grant. There are different kinds of privileges: SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, CREATE, CONNECT, TEMPORARY, EXECUTE, and USAGE. An empty list could be provided to revoke all privileges for this role.
+* `privileges` - (Required) The list of privileges to grant. There are different kinds of privileges: SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, CREATE, CONNECT, TEMPORARY, EXECUTE, USAGE, and MAINTAIN (PostgreSQL 17+ only, tables only). An empty list could be provided to revoke all privileges for this role.
 * `objects` - (Optional) The objects upon which to grant the privileges. An empty list (the default) means to grant permissions on *all* objects of the specified type. You cannot specify this option if the `object_type` is `database` or `schema`. When `object_type` is `column`, only one value is allowed.
 * `columns` - (Optional) The columns upon which to grant the privileges. Required when `object_type` is `column`. You cannot specify this option if the `object_type` is not `column`.
 * `with_grant_option` - (Optional) Whether the recipient of these privileges can grant the same privileges to others. Defaults to false.

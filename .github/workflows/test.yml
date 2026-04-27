@@ -3,7 +3,7 @@ name: test
 on:
   push:
     branches:
-    - main
+      - main
   pull_request:
 
 jobs:
@@ -12,7 +12,7 @@ jobs:
 
     strategy:
       matrix:
-        pgversion: [16, 15, 14, 13, 12]
+        pgversion: [18, 17, 16, 15, 14, 13, 12]
 
     env:
       PGVERSION: ${{ matrix.pgversion }}
@@ -24,13 +24,19 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: "1.24"
 
       - name: test
         run: make test
 
       - name: vet
         run: make vet
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.11"
+          terraform_wrapper: false
 
       - name: testacc
         run: make testacc

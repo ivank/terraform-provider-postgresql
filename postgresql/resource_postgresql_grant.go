@@ -6,6 +6,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/blang/semver"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 
@@ -125,7 +126,7 @@ func resourcePostgreSQLGrantRead(db *DBConnection, d *schema.ResourceData) error
 	}
 	defer deferredRollback(txn)
 
-	return readRolePrivileges(txn, d)
+	return readRolePrivileges(txn, db.version, d)
 }
 
 func resourcePostgreSQLGrantCreate(db *DBConnection, d *schema.ResourceData) error {
@@ -218,7 +219,7 @@ func resourcePostgreSQLGrantCreateOrUpdate(db *DBConnection, d *schema.ResourceD
 	}
 	defer deferredRollback(txn)
 
-	return readRolePrivileges(txn, d)
+	return readRolePrivileges(txn, db.version, d)
 }
 
 func resourcePostgreSQLGrantDelete(db *DBConnection, d *schema.ResourceData) error {
@@ -263,7 +264,7 @@ func resourcePostgreSQLGrantDelete(db *DBConnection, d *schema.ResourceData) err
 	return nil
 }
 
-func readDatabaseRolePrivileges(txn *sql.Tx, d *schema.ResourceData, roleOID uint32) error {
+func readDatabaseRolePrivileges(txn *sql.Tx, ver semver.Version, d *schema.ResourceData, roleOID uint32) error {
 	dbName := d.Get("database").(string)
 	query := `
 SELECT array_agg(privilege_type)
@@ -278,13 +279,13 @@ WHERE grantee = $2
 		return fmt.Errorf("could not read privileges for database %s: %w", dbName, err)
 	}
 	granted := pgArrayToSet(privileges)
-	if !resourcePrivilegesEqual(granted, d) {
+	if !resourcePrivilegesEqual(granted, d, ver) {
 		return d.Set("privileges", granted)
 	}
 	return nil
 }
 
-func readSchemaRolePrivileges(txn *sql.Tx, d *schema.ResourceData, roleOID uint32) error {
+func readSchemaRolePrivileges(txn *sql.Tx, ver semver.Version, d *schema.ResourceData, roleOID uint32) error {
 	dbName := d.Get("schema").(string)
 	query := `
 SELECT array_agg(privilege_type)
@@ -300,13 +301,13 @@ WHERE grantee = $2
 	}
 
 	granted := pgArrayToSet(privileges)
-	if !resourcePrivilegesEqual(granted, d) {
+	if !resourcePrivilegesEqual(granted, d, ver) {
 		return d.Set("privileges", granted)
 	}
 	return nil
 }
 
-func readForeignDataWrapperRolePrivileges(txn *sql.Tx, d *schema.ResourceData, roleOID uint32) error {
+func readForeignDataWrapperRolePrivileges(txn *sql.Tx, ver semver.Version, d *schema.ResourceData, roleOID uint32) error {
 	objects := d.Get("objects").(*schema.Set).List()
 	fdwName := objects[0].(string)
 	query := `
@@ -323,13 +324,13 @@ WHERE grantee = $2
 	}
 
 	granted := pgArrayToSet(privileges)
-	if !resourcePrivilegesEqual(granted, d) {
+	if !resourcePrivilegesEqual(granted, d, ver) {
 		return d.Set("privileges", granted)
 	}
 	return nil
 }
 
-func readForeignServerRolePrivileges(txn *sql.Tx, d *schema.ResourceData, roleOID uint32) error {
+func readForeignServerRolePrivileges(txn *sql.Tx, ver semver.Version, d *schema.ResourceData, roleOID uint32) error {
 	objects := d.Get("objects").(*schema.Set).List()
 	srvName := objects[0].(string)
 	query := `
@@ -346,7 +347,7 @@ WHERE grantee = $2
 	}
 
 	granted := pgArrayToSet(privileges)
-	if !resourcePrivilegesEqual(granted, d) {
+	if !resourcePrivilegesEqual(granted, d, ver) {
 		return d.Set("privileges", granted)
 	}
 	return nil
@@ -430,7 +431,7 @@ ORDER BY col_privs.attname
 	return nil
 }
 
-func readRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
+func readRolePrivileges(txn *sql.Tx, ver semver.Version, d *schema.ResourceData) error {
 	role := d.Get("role").(string)
 	objectType := d.Get("object_type").(string)
 	objects := d.Get("objects").(*schema.Set)
@@ -445,16 +446,16 @@ func readRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
 
 	switch objectType {
 	case "database":
-		return readDatabaseRolePrivileges(txn, d, roleOID)
+		return readDatabaseRolePrivileges(txn, ver, d, roleOID)
 
 	case "schema":
-		return readSchemaRolePrivileges(txn, d, roleOID)
+		return readSchemaRolePrivileges(txn, ver, d, roleOID)
 
 	case "foreign_data_wrapper":
-		return readForeignDataWrapperRolePrivileges(txn, d, roleOID)
+		return readForeignDataWrapperRolePrivileges(txn, ver, d, roleOID)
 
 	case "foreign_server":
-		return readForeignServerRolePrivileges(txn, d, roleOID)
+		return readForeignServerRolePrivileges(txn, ver, d, roleOID)
 
 	case "function", "procedure", "routine":
 		query = `
@@ -521,7 +522,7 @@ GROUP BY pg_class.relname
 		}
 
 		privilegesSet := pgArrayToSet(privileges)
-		if !resourcePrivilegesEqual(privilegesSet, d) {
+		if !resourcePrivilegesEqual(privilegesSet, d, ver) {
 			// If any object doesn't have the same privileges as saved in the state,
 			// we return its privileges to force an update.
 			log.Printf(
@@ -655,22 +656,25 @@ func createRevokeQuery(getter ResourceSchemeGetter) string {
 		}
 	case "TABLE", "SEQUENCE", "FUNCTION", "PROCEDURE", "ROUTINE":
 		objects := getter("objects").(*schema.Set)
-		privileges := getter("privileges").(*schema.Set)
+		objectType := strings.ToUpper(getter("object_type").(string))
 		if objects.Len() > 0 {
-			if privileges.Len() > 0 {
-				// Revoking specific privileges instead of all privileges
-				// to avoid messing with column level grants
+			// For TABLE, always revoke ALL PRIVILEGES to avoid issues with newer
+			// privilege types (e.g. MAINTAIN on PG16+) not being recognized in
+			// specific REVOKE statements. For other types, revoke specific
+			// privileges when specified to preserve column-level grants.
+			privileges := getter("privileges").(*schema.Set)
+			if privileges.Len() > 0 && objectType != "TABLE" {
 				query = fmt.Sprintf(
 					"REVOKE %s ON %s %s FROM %s",
 					setToPgIdentSimpleList(privileges),
-					strings.ToUpper(getter("object_type").(string)),
+					objectType,
 					setToPgIdentList(getter("schema").(string), objects),
 					pq.QuoteIdentifier(getter("role").(string)),
 				)
 			} else {
 				query = fmt.Sprintf(
 					"REVOKE ALL PRIVILEGES ON %s %s FROM %s",
-					strings.ToUpper(getter("object_type").(string)),
+					objectType,
 					setToPgIdentList(getter("schema").(string), objects),
 					pq.QuoteIdentifier(getter("role").(string)),
 				)
@@ -678,7 +682,7 @@ func createRevokeQuery(getter ResourceSchemeGetter) string {
 		} else {
 			query = fmt.Sprintf(
 				"REVOKE ALL PRIVILEGES ON ALL %sS IN SCHEMA %s FROM %s",
-				strings.ToUpper(getter("object_type").(string)),
+				objectType,
 				pq.QuoteIdentifier(getter("schema").(string)),
 				pq.QuoteIdentifier(getter("role").(string)),
 			)
@@ -852,6 +856,16 @@ func validateFeatureSupport(db *DBConnection, d *schema.ResourceData) error {
 			"object type ROUTINE is not supported for this Postgres version (%s)",
 			db.version,
 		)
+	}
+	if d.Get("object_type") == "table" && !db.featureSupported(featurePrivilegeMaintain) {
+		for _, priv := range d.Get("privileges").(*schema.Set).List() {
+			if priv.(string) == "MAINTAIN" {
+				return fmt.Errorf(
+					"MAINTAIN privilege requires PostgreSQL 17 or later (current: %s)",
+					db.version,
+				)
+			}
+		}
 	}
 	return nil
 }

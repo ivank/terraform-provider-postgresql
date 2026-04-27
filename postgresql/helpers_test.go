@@ -1,9 +1,10 @@
 package postgresql
 
 import (
-	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"testing"
 
+	"github.com/blang/semver"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -47,59 +48,108 @@ func TestQuoteTableName(t *testing.T) {
 	}
 }
 
+var (
+	pg15 = semver.MustParse("15.0.0")
+	pg16 = semver.MustParse("16.0.0")
+)
+
 func TestArePrivilegesEqual(t *testing.T) {
 
 	type PrivilegesTestObject struct {
+		name      string
 		d         *schema.ResourceData
 		granted   *schema.Set
 		wanted    *schema.Set
+		ver       semver.Version
 		assertion bool
 	}
 
 	tt := []PrivilegesTestObject{
 		{
+			"database ALL on pg15",
 			buildResourceData("database", t),
 			buildPrivilegesSet("CONNECT", "CREATE", "TEMPORARY"),
 			buildPrivilegesSet("ALL"),
+			pg15,
 			true,
 		},
 		{
+			"database partial != USAGE",
 			buildResourceData("database", t),
 			buildPrivilegesSet("CREATE", "USAGE"),
 			buildPrivilegesSet("USAGE"),
+			pg15,
 			false,
 		},
 		{
+			"table ALL without MAINTAIN on pg15",
 			buildResourceData("table", t),
 			buildPrivilegesSet("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"),
 			buildPrivilegesSet("ALL"),
+			pg15,
 			true,
 		},
 		{
+			"table ALL with MAINTAIN on pg16",
+			buildResourceData("table", t),
+			buildPrivilegesSet("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"),
+			buildPrivilegesSet("ALL"),
+			pg16,
+			true,
+		},
+		{
+			// Extra privileges beyond the known set for a version are tolerated
+			// (e.g. a future PG version adds a new privilege), so no drift.
+			"table ALL with extra unknown privilege - no drift",
+			buildResourceData("table", t),
+			buildPrivilegesSet("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"),
+			buildPrivilegesSet("ALL"),
+			pg15,
+			true,
+		},
+		{
+			// GRANT ALL on tables does not include MAINTAIN even on PG16+,
+			// so a 7-privilege set matches ALL on pg16 without drift.
+			"table ALL without MAINTAIN on pg16 - no drift",
+			buildResourceData("table", t),
+			buildPrivilegesSet("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"),
+			buildPrivilegesSet("ALL"),
+			pg16,
+			true,
+		},
+		{
+			"table partial != multi",
 			buildResourceData("table", t),
 			buildPrivilegesSet("SELECT"),
 			buildPrivilegesSet("SELECT, INSERT"),
+			pg15,
 			false,
 		},
 		{
+			"schema ALL on pg15",
 			buildResourceData("schema", t),
 			buildPrivilegesSet("CREATE", "USAGE"),
 			buildPrivilegesSet("ALL"),
+			pg15,
 			true,
 		},
 		{
+			"schema partial != ALL",
 			buildResourceData("schema", t),
 			buildPrivilegesSet("CREATE"),
 			buildPrivilegesSet("ALL"),
+			pg15,
 			false,
 		},
 	}
 
-	for _, configuration := range tt {
-		err := configuration.d.Set("privileges", configuration.wanted)
-		assert.NoError(t, err)
-		equal := resourcePrivilegesEqual(configuration.granted, configuration.d)
-		assert.Equal(t, configuration.assertion, equal)
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.d.Set("privileges", tc.wanted)
+			assert.NoError(t, err)
+			equal := resourcePrivilegesEqual(tc.granted, tc.d, tc.ver)
+			assert.Equal(t, tc.assertion, equal)
+		})
 	}
 }
 
