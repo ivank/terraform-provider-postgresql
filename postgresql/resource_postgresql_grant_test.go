@@ -1480,6 +1480,73 @@ func TestAccPostgresqlGrantOwnerPG15(t *testing.T) {
 	})
 }
 
+func TestAccPostgresqlGrantMaintain(t *testing.T) {
+	skipIfNotAcc(t)
+
+	dbSuffix, teardown := setupTestDatabase(t, true, true)
+	defer teardown()
+
+	testTables := []string{"test_schema.test_table"}
+	createTestTables(t, dbSuffix, testTables, "")
+
+	dbName, roleName := getTestDBNames(dbSuffix)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testCheckCompatibleVersion(t, featurePrivilegeMaintain)
+		},
+		Providers: testAccProviders,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "postgresql_grant" "test" {
+	database    = "%s"
+	role        = "%s"
+	schema      = "test_schema"
+	object_type = "table"
+	objects     = ["test_table"]
+	privileges  = ["MAINTAIN"]
+}`, dbName, roleName),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("postgresql_grant.test", "privileges.#", "1"),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "privileges.0", "MAINTAIN"),
+				),
+			},
+			{
+				Config: fmt.Sprintf(`
+resource "postgresql_grant" "test" {
+	database    = "%s"
+	role        = "%s"
+	schema      = "test_schema"
+	object_type = "table"
+	objects     = ["test_table"]
+	privileges  = ["ALL"]
+}`, dbName, roleName),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("postgresql_grant.test", "privileges.#", "1"),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "privileges.0", "ALL"),
+				),
+			},
+			{
+				Config: fmt.Sprintf(`
+resource "postgresql_grant" "test" {
+	database    = "%s"
+	role        = "%s"
+	schema      = "test_schema"
+	object_type = "table"
+	objects     = ["test_table"]
+	privileges  = ["SELECT"]
+}`, dbName, roleName),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("postgresql_grant.test", "privileges.#", "1"),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "privileges.0", "SELECT"),
+				),
+			},
+		},
+	})
+}
+
 func testCheckDatabasesPrivileges(t *testing.T, canCreate bool) func(*terraform.State) error {
 	return func(*terraform.State) error {
 		db := connectAsTestRole(t, "test_grant_role", "test_grant_db")

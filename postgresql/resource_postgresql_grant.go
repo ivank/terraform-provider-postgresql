@@ -854,5 +854,15 @@ func validateFeatureSupport(db *DBConnection, d *schema.ResourceData) error {
 			db.version,
 		)
 	}
+	if d.Get("object_type") == "table" && !db.featureSupported(featurePrivilegeMaintain) {
+		for _, priv := range d.Get("privileges").(*schema.Set).List() {
+			if priv.(string) == "MAINTAIN" {
+				return fmt.Errorf(
+					"MAINTAIN privilege requires PostgreSQL 16 or later (current: %s)",
+					db.version,
+				)
+			}
+		}
+	}
 	return nil
 }
