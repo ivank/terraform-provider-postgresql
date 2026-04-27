@@ -125,7 +125,7 @@ var (
 		featureSecurityLabel:       semver.MustParseRange(">=11.0.0"),
 
 		// MAINTAIN privilege for tables (VACUUM, ANALYZE, REINDEX, etc.)
-		featurePrivilegeMaintain: semver.MustParseRange(">=16.0.0"),
+		featurePrivilegeMaintain: semver.MustParseRange(">=17.0.0"),
 	}
 )
 

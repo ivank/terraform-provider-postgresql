@@ -861,7 +861,7 @@ func validateFeatureSupport(db *DBConnection, d *schema.ResourceData) error {
 		for _, priv := range d.Get("privileges").(*schema.Set).List() {
 			if priv.(string) == "MAINTAIN" {
 				return fmt.Errorf(
-					"MAINTAIN privilege requires PostgreSQL 16 or later (current: %s)",
+					"MAINTAIN privilege requires PostgreSQL 17 or later (current: %s)",
 					db.version,
 				)
 			}
