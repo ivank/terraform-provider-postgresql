@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/blang/semver"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/lib/pq"
 )
@@ -251,7 +252,7 @@ func sliceContainsStr(haystack []string, needle string) bool {
 // see: https://www.postgresql.org/docs/current/sql-grant.html
 var allowedPrivileges = map[string][]string{
 	"database":             {"ALL", "CREATE", "CONNECT", "TEMPORARY"},
-	"table":                {"ALL", "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"},
+	"table":                {"ALL", "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"},
 	"sequence":             {"ALL", "USAGE", "SELECT", "UPDATE"},
 	"schema":               {"ALL", "CREATE", "USAGE"},
 	"function":             {"ALL", "EXECUTE"},
@@ -281,7 +282,24 @@ func validatePrivileges(d *schema.ResourceData) error {
 	return nil
 }
 
-func resourcePrivilegesEqual(granted *schema.Set, d *schema.ResourceData) bool {
+// allPrivilegesForObjectType returns the individual privileges that ALL
+// expands to for the given object type. Note: MAINTAIN is intentionally
+// excluded because GRANT ALL on tables does not include MAINTAIN even on
+// PG16+; MAINTAIN must be granted explicitly.
+func allPrivilegesForObjectType(objectType string, ver semver.Version) []string {
+	base := allowedPrivileges[objectType]
+
+	var privs []string
+	for _, p := range base {
+		if p == "ALL" || p == "MAINTAIN" {
+			continue
+		}
+		privs = append(privs, p)
+	}
+	return privs
+}
+
+func resourcePrivilegesEqual(granted *schema.Set, d *schema.ResourceData, ver semver.Version) bool {
 	objectType := d.Get("object_type").(string)
 	wanted := d.Get("privileges").(*schema.Set)
 
@@ -293,16 +311,17 @@ func resourcePrivilegesEqual(granted *schema.Set, d *schema.ResourceData) bool {
 		return false
 	}
 
-	// implicit check: e.g. for object_type schema -> ALL == ["CREATE", "USAGE"]
+	// When config says ALL, verify the DB has at least every privilege we know
+	// about for this object type and server version. Extra privileges (e.g. from
+	// a newer PostgreSQL that added a new privilege type) are tolerated because
+	// re-running GRANT ALL would produce them again anyway.
 	log.Printf("The wanted privilege is 'ALL'. therefore, we will check if the current privileges are ALL implicitly")
-	implicits := []any{}
-	for _, p := range allowedPrivileges[objectType] {
-		if p != "ALL" {
-			implicits = append(implicits, p)
+	for _, p := range allPrivilegesForObjectType(objectType, ver) {
+		if !granted.Contains(p) {
+			return false
 		}
 	}
-	wantedSet := schema.NewSet(schema.HashString, implicits)
-	return granted.Equal(wantedSet)
+	return true
 }
 
 func pgArrayToSet(arr pq.ByteaArray) *schema.Set {
