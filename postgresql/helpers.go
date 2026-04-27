@@ -313,13 +313,17 @@ func resourcePrivilegesEqual(granted *schema.Set, d *schema.ResourceData, ver se
 		return false
 	}
 
+	// When config says ALL, verify the DB has at least every privilege we know
+	// about for this object type and server version. Extra privileges (e.g. from
+	// a newer PostgreSQL that added a new privilege type) are tolerated because
+	// re-running GRANT ALL would produce them again anyway.
 	log.Printf("The wanted privilege is 'ALL'. therefore, we will check if the current privileges are ALL implicitly")
-	implicits := make([]any, 0)
 	for _, p := range allPrivilegesForObjectType(objectType, ver) {
-		implicits = append(implicits, p)
+		if !granted.Contains(p) {
+			return false
+		}
 	}
-	wantedSet := schema.NewSet(schema.HashString, implicits)
-	return granted.Equal(wantedSet)
+	return true
 }
 
 func pgArrayToSet(arr pq.ByteaArray) *schema.Set {

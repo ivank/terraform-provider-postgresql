@@ -98,12 +98,14 @@ func TestArePrivilegesEqual(t *testing.T) {
 			true,
 		},
 		{
-			"table MAINTAIN in granted but pg15 expects no MAINTAIN - should drift",
+			// Extra privileges beyond the known set for a version are tolerated
+			// (e.g. a future PG version adds a new privilege), so no drift.
+			"table ALL with extra unknown privilege - no drift",
 			buildResourceData("table", t),
 			buildPrivilegesSet("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"),
 			buildPrivilegesSet("ALL"),
 			pg15,
-			false,
+			true,
 		},
 		{
 			"table ALL missing MAINTAIN on pg16 - should drift",
