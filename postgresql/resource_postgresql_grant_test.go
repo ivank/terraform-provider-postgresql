@@ -1494,7 +1494,7 @@ func TestAccPostgresqlGrantMaintain(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
 			testAccPreCheck(t)
-			testCheckCompatibleVersion(t, featurePrivilegeMaintain)
+			testCheckCompatibleVersion(t, featureMaintainPrivilege)
 		},
 		Providers: testAccProviders,
 		Steps: []resource.TestStep{

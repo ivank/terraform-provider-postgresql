@@ -51,6 +51,7 @@ func TestQuoteTableName(t *testing.T) {
 var (
 	pg15 = semver.MustParse("15.0.0")
 	pg16 = semver.MustParse("16.0.0")
+	pg17 = semver.MustParse("17.0.0")
 )
 
 func TestArePrivilegesEqual(t *testing.T) {
@@ -108,14 +109,34 @@ func TestArePrivilegesEqual(t *testing.T) {
 			true,
 		},
 		{
-			// GRANT ALL on tables does not include MAINTAIN even on PG16+,
-			// so a 7-privilege set matches ALL on pg16 without drift.
+			// MAINTAIN is not a privilege before PG17, so GRANT ALL yields 7
+			// privileges and a 7-privilege set matches ALL on pg16 without drift.
 			"table ALL without MAINTAIN on pg16 - no drift",
 			buildResourceData("table", t),
 			buildPrivilegesSet("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"),
 			buildPrivilegesSet("ALL"),
 			pg16,
 			true,
+		},
+		{
+			// On PG17 MAINTAIN is part of ALL, so GRANT ALL yields 8 privileges
+			// and the full 8-privilege set matches ALL without drift.
+			"table ALL with MAINTAIN on pg17 - no drift",
+			buildResourceData("table", t),
+			buildPrivilegesSet("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"),
+			buildPrivilegesSet("ALL"),
+			pg17,
+			true,
+		},
+		{
+			// On PG17 MAINTAIN is part of ALL, so a granted set missing MAINTAIN
+			// is not equal to ALL and must report drift.
+			"table ALL missing MAINTAIN on pg17 - drift",
+			buildResourceData("table", t),
+			buildPrivilegesSet("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"),
+			buildPrivilegesSet("ALL"),
+			pg17,
+			false,
 		},
 		{
 			"table partial != multi",
@@ -147,7 +168,7 @@ func TestArePrivilegesEqual(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.d.Set("privileges", tc.wanted)
 			assert.NoError(t, err)
-			equal := resourcePrivilegesEqual(tc.granted, tc.d, tc.ver)
+			equal := resourcePrivilegesEqual(tc.granted, &DBConnection{version: tc.ver}, tc.d)
 			assert.Equal(t, tc.assertion, equal)
 		})
 	}
