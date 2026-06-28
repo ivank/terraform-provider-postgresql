@@ -42,7 +42,7 @@ const (
 	featureServer
 	featureCreateRoleSelfGrant
 	featureSecurityLabel
-	featurePrivilegeMaintain
+	featureMaintainPrivilege
 )
 
 var (
@@ -120,8 +120,8 @@ var (
 		featureCreateRoleSelfGrant: semver.MustParseRange(">=16.0.0"),
 		featureSecurityLabel:       semver.MustParseRange(">=11.0.0"),
 
-		// MAINTAIN privilege for tables (VACUUM, ANALYZE, REINDEX, etc.)
-		featurePrivilegeMaintain: semver.MustParseRange(">=17.0.0"),
+		// MAINTAIN privilege on tables (PG 17+).
+		featureMaintainPrivilege: semver.MustParseRange(">=17.0.0"),
 	}
 )
 

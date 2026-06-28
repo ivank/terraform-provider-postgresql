@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/blang/semver"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/lib/pq"
 )
@@ -252,7 +251,7 @@ func sliceContainsStr(haystack []string, needle string) bool {
 // see: https://www.postgresql.org/docs/current/sql-grant.html
 var allowedPrivileges = map[string][]string{
 	"database":             {"ALL", "CREATE", "CONNECT", "TEMPORARY"},
-	"table":                {"ALL", "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"},
+	"table":                {"ALL", "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"},
 	"sequence":             {"ALL", "USAGE", "SELECT", "UPDATE"},
 	"schema":               {"ALL", "CREATE", "USAGE"},
 	"function":             {"ALL", "EXECUTE"},
@@ -264,13 +263,29 @@ var allowedPrivileges = map[string][]string{
 	"column":               {"ALL", "SELECT", "INSERT", "UPDATE", "REFERENCES"},
 }
 
+// allowedPrivilegesForObjectType returns the allowed privileges for a given object type,
+// including version-specific privileges (e.g. MAINTAIN for PG >= 17).
+// If db is nil, only base privileges are returned.
+func allowedPrivilegesForObjectType(objectType string, db *DBConnection) []string {
+	base, ok := allowedPrivileges[objectType]
+	if !ok {
+		return nil
+	}
+	if objectType == "table" && db != nil && db.featureSupported(featureMaintainPrivilege) {
+		extended := make([]string, len(base))
+		copy(extended, base)
+		return append(extended, "MAINTAIN")
+	}
+	return base
+}
+
 // validatePrivileges checks that privileges to apply are allowed for this object type.
-func validatePrivileges(d *schema.ResourceData) error {
+func validatePrivileges(db *DBConnection, d *schema.ResourceData) error {
 	objectType := d.Get("object_type").(string)
 	privileges := d.Get("privileges").(*schema.Set).List()
 
-	allowed, ok := allowedPrivileges[objectType]
-	if !ok {
+	allowed := allowedPrivilegesForObjectType(objectType, db)
+	if allowed == nil {
 		return fmt.Errorf("unknown object type %s", objectType)
 	}
 
@@ -282,24 +297,7 @@ func validatePrivileges(d *schema.ResourceData) error {
 	return nil
 }
 
-// allPrivilegesForObjectType returns the individual privileges that ALL
-// expands to for the given object type. Note: MAINTAIN is intentionally
-// excluded because GRANT ALL on tables does not include MAINTAIN even on
-// PG16+; MAINTAIN must be granted explicitly.
-func allPrivilegesForObjectType(objectType string, ver semver.Version) []string {
-	base := allowedPrivileges[objectType]
-
-	var privs []string
-	for _, p := range base {
-		if p == "ALL" || p == "MAINTAIN" {
-			continue
-		}
-		privs = append(privs, p)
-	}
-	return privs
-}
-
-func resourcePrivilegesEqual(granted *schema.Set, d *schema.ResourceData, ver semver.Version) bool {
+func resourcePrivilegesEqual(granted *schema.Set, db *DBConnection, d *schema.ResourceData) bool {
 	objectType := d.Get("object_type").(string)
 	wanted := d.Get("privileges").(*schema.Set)
 
@@ -316,7 +314,10 @@ func resourcePrivilegesEqual(granted *schema.Set, d *schema.ResourceData, ver se
 	// a newer PostgreSQL that added a new privilege type) are tolerated because
 	// re-running GRANT ALL would produce them again anyway.
 	log.Printf("The wanted privilege is 'ALL'. therefore, we will check if the current privileges are ALL implicitly")
-	for _, p := range allPrivilegesForObjectType(objectType, ver) {
+	for _, p := range allowedPrivilegesForObjectType(objectType, db) {
+		if p == "ALL" {
+			continue
+		}
 		if !granted.Contains(p) {
 			return false
 		}
