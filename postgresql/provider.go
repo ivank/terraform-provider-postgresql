@@ -126,6 +126,7 @@ func Provider() *schema.Provider {
 				Default:     "",
 				Description: "(`gcppostgres` only) IP address type of the Cloud SQL instance: `public`, `private`, or `psc`. If unset, the public IP is preferred with private as a fallback.",
 				ValidateFunc: validation.StringInSlice([]string{
+					"",
 					"public",
 					"private",
 					"psc",

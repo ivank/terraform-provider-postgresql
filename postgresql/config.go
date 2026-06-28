@@ -292,11 +292,12 @@ func (c *Client) Connect() (*DBConnection, error) {
 
 		var db *sql.DB
 		var err error
-		if c.config.Scheme == "postgres" {
+		switch c.config.Scheme {
+		case "postgres":
 			db, err = sql.Open(proxyDriverName, dsn)
-		} else if c.config.Scheme == "gcppostgres" {
+		case "gcppostgres":
 			db, err = openGCPConnection(context.Background(), &c.config, c.databaseName)
-		} else {
+		default:
 			db, err = postgres.Open(context.Background(), dsn)
 		}
 
