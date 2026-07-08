@@ -138,7 +138,10 @@ func gcpDialerOptions(ctx context.Context, spec gcpSpec) ([]cloudsqlconn.Option,
 		if err != nil {
 			return nil, fmt.Errorf("error creating login token source impersonating %s: %w", spec.Impersonate, err)
 		}
-		opts = append(opts, cloudsqlconn.WithIAMAuthNTokenSources(apiTS, loginTS))
+		// WithIAMAuthNTokenSources supplies the sources but does not switch the
+		// dialer into IAM AuthN mode; without WithIAMAuthN NewDialer rejects the
+		// combination ("use WithTokenSource when IAM AuthN is not enabled").
+		opts = append(opts, cloudsqlconn.WithIAMAuthN(), cloudsqlconn.WithIAMAuthNTokenSources(apiTS, loginTS))
 	case spec.Impersonate != "":
 		ts, err := impersonate.CredentialsTokenSource(ctx, impersonate.CredentialsConfig{
 			TargetPrincipal: spec.Impersonate,
