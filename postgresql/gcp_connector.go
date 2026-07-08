@@ -26,11 +26,18 @@ func gcpKVQuote(v string) string {
 // dials it through the connector. When IAM auth is enabled the password is
 // omitted so the connector injects the IAM token instead.
 func gcpDSN(config *Config, database string) string {
+	// sslmode=disable is required, not optional: the connector stream is already
+	// TLS-wrapped (the inner postgres protocol is plaintext), and any other mode
+	// makes pgx's ParseConfig emit a non-TLS fallback that still carries the
+	// original host — the cloudsqlconn pgxv5 driver only rewrites the primary
+	// host to localhost, so that fallback DNS-resolves the instance connection
+	// name and the whole connect fails with "no such host".
 	parts := []string{
 		"host=" + gcpKVQuote(gcpHost(config.Host)),
 		fmt.Sprintf("port=%d", config.Port),
 		"user=" + gcpKVQuote(config.Username),
 		"dbname=" + gcpKVQuote(database),
+		"sslmode=disable",
 	}
 	if !config.GCPIAMAuth && config.Password != "" {
 		parts = append(parts, "password="+gcpKVQuote(config.Password))
