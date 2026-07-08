@@ -24,7 +24,7 @@ func TestGCPDSN(t *testing.T) {
 	// password auth includes the password
 	pw := &Config{Host: "proj/region/inst", Port: 5432, Username: "u", Password: "p", ApplicationName: "Terraform provider"}
 	got := gcpDSN(pw, "mydb")
-	for _, want := range []string{"host='proj:region:inst'", "port=5432", "user='u'", "dbname='mydb'", "password='p'", "application_name='Terraform provider'"} {
+	for _, want := range []string{"host='proj:region:inst'", "port=5432", "user='u'", "dbname='mydb'", "password='p'", "application_name='Terraform provider'", "sslmode=disable"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("gcpDSN password auth = %q, missing %q", got, want)
 		}
